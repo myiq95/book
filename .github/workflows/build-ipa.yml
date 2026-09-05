@@ -1,0 +1,59 @@
+name: Build unsigned IPA (for SideStore)
+
+# Mac이 없어도 GitHub이 제공하는 무료 macOS 러너에서 자동으로 빌드합니다.
+# 코드를 푸시하거나, Actions 탭에서 수동으로 "Run workflow"를 누르면 실행됩니다.
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - name: 코드 체크아웃
+        uses: actions/checkout@v4
+
+      - name: Node.js 설치
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: npm 의존성 설치
+        run: npm install
+
+      - name: Capacitor iOS 동기화
+        run: npx cap sync ios
+
+      - name: Xcode 버전 확인
+        run: xcodebuild -version
+
+      - name: 서명 없이 아카이브 빌드
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project ios/App/App.xcodeproj \
+            -scheme App \
+            -configuration Release \
+            -sdk iphoneos \
+            -archivePath "$PWD/build/App.xcarchive" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            clean archive
+
+      - name: .app을 .ipa(Payload 구조)로 패키징
+        run: |
+          set -euo pipefail
+          cd build
+          mkdir -p Payload
+          cp -r App.xcarchive/Products/Applications/*.app Payload/
+          zip -r -X 서재-unsigned.ipa Payload
+          ls -la
+
+      - name: ipa 아티팩트 업로드
+        uses: actions/upload-artifact@v4
+        with:
+          name: 서재-ipa
+          path: build/서재-unsigned.ipa
+          retention-days: 30
