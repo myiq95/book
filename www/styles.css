@@ -137,7 +137,7 @@ body { padding-top: calc(56px + env(safe-area-inset-top, 0px)); }
    라이브러리 (초기 화면)
    ================================================================= */
 .library { height: 100dvh; overflow-y: auto; }
-.library-inner { max-width: 980px; margin: 0 auto; padding: var(--space-16) var(--space-6) var(--space-24); }
+.library-inner { max-width: 980px; margin: 0 auto; padding: calc(var(--space-16) + env(safe-area-inset-top, 0px)) var(--space-6) var(--space-24); }
 .library-hero { text-align: center; margin-bottom: var(--space-12); }
 .eyebrow { display: inline-block; font-size: var(--text-xs); letter-spacing: .22em; color: var(--accent); font-weight: 600; margin-bottom: var(--space-3); }
 .hero-title { font-family: var(--reader-font); font-size: var(--text-2xl); font-weight: 700; color: var(--ink); letter-spacing: -.02em; }

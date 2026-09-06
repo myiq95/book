@@ -47,6 +47,26 @@ const el = {
    ================================================================= */
 function lsGet(k, def){ try { const v = localStorage.getItem(k); return v? JSON.parse(v): def; } catch { return def; } }
 function lsSet(k, v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
+
+/* 네이티브 앱(Capacitor WKWebView)에서 iOS 문서 선택기를 거쳐 온 File
+   객체는 드물게 File.text()/arrayBuffer()가 실패하는 경우가 있어,
+   실패 시 FileReader API로 한 번 더 시도한다. */
+function readFileAsText(file){
+  return file.text().catch(()=> new Promise((resolve, reject)=>{
+    const reader = new FileReader();
+    reader.onload = ()=> resolve(reader.result);
+    reader.onerror = ()=> reject(reader.error || new Error('파일을 텍스트로 읽을 수 없습니다'));
+    reader.readAsText(file);
+  }));
+}
+function readFileAsArrayBuffer(file){
+  return file.arrayBuffer().catch(()=> new Promise((resolve, reject)=>{
+    const reader = new FileReader();
+    reader.onload = ()=> resolve(reader.result);
+    reader.onerror = ()=> reject(reader.error || new Error('파일을 읽을 수 없습니다'));
+    reader.readAsArrayBuffer(file);
+  }));
+}
 function loadBookmarks(){ const d = lsGet('seojae.bookmarks', []); return Array.isArray(d)? d: []; }
 function saveBookmarks(){ lsSet('seojae.bookmarks', State.bookmarks); }
 function loadSettings(){ const d = lsGet('seojae.settings', null); return Object.assign({ theme:'light', fontSize:19, lineHeight:1.8, font:'serif', ttsRate:1 }, d||{}); }
@@ -59,7 +79,7 @@ function savePosition(bookId, chapter, spread){ const m = lsGet('seojae.position
    토스트 / 스크림 / 패널
    ================================================================= */
 let toastTimer;
-function toast(msg){ el.toast.textContent = msg; el.toast.classList.add('show'); clearTimeout(toastTimer); toastTimer = setTimeout(()=>el.toast.classList.remove('show'), 2200); }
+function toast(msg, duration=2200){ el.toast.textContent = msg; el.toast.classList.add('show'); clearTimeout(toastTimer); toastTimer = setTimeout(()=>el.toast.classList.remove('show'), duration); }
 function openPanel(panel){ closeAllPanels(); panel.classList.add('open'); panel.setAttribute('aria-hidden','false'); el.scrim.hidden = false; requestAnimationFrame(()=>el.scrim.classList.add('show')); }
 function closeAllPanels(){ $$('.panel.open').forEach(p=>{ p.classList.remove('open'); p.setAttribute('aria-hidden','true'); }); el.scrim.classList.remove('show'); setTimeout(()=>{ if(!$$('.panel.open').length) el.scrim.hidden = true; }, 200); }
 
@@ -121,10 +141,14 @@ function labelForFormat(f){ return ({txt:'텍스트',md:'마크다운',docx:'문
    ================================================================= */
 function handleFiles(fileList){
   const files = [...fileList];
-  let done = 0;
   files.forEach(async (file)=>{
     try { const book = await parseFile(file); State.books.unshift(book); renderShelf(); toast(`「${book.title}」 불러오기 완료`); if(files.length===1) openBook(book.id); }
-    catch(err){ console.error(err); toast(`불러오기 실패: ${file.name}`); }
+    catch(err){
+      console.error(err);
+      // 실제 원인을 화면에서 바로 확인할 수 있도록 메시지를 그대로 보여준다
+      // (기기에 콘솔을 못 붙이는 상황에서 원인 파악에 필수적이다).
+      toast(`불러오기 실패: ${file.name} — ${(err && err.message) || err}`, 6000);
+    }
   });
 }
 async function parseFile(file){
@@ -142,7 +166,7 @@ async function parseFile(file){
 
 /* ---------- TXT ---------- */
 async function parseTxt(file){
-  const text = await file.text();
+  const text = await readFileAsText(file);
   const title = guessTitle(file.name);
   const chapters = splitTxtChapters(text);
   return { title, author:'', chapters };
@@ -206,7 +230,7 @@ function txtLinesToHtml(lines){
 
 /* ---------- Markdown ---------- */
 async function parseMd(file){
-  const text = await file.text();
+  const text = await readFileAsText(file);
   const html = DOMPurify.sanitize(marked.parse(text, { breaks:true, gfm:true }), { ADD_ATTR:['id'] });
   const title = guessTitle(file.name);
   return { title, author:'', chapters: splitHtmlByHeadings(html) };
@@ -214,7 +238,7 @@ async function parseMd(file){
 
 /* ---------- DOCX ---------- */
 async function parseDocx(file){
-  const ab = await file.arrayBuffer();
+  const ab = await readFileAsArrayBuffer(file);
   const res = await mammoth.convertToHtml({ arrayBuffer: ab });
   let html = DOMPurify.sanitize(res.value, { ADD_ATTR:['id'] });
   const chapters = splitHtmlByHeadings(html);
@@ -256,7 +280,7 @@ function splitHtmlByHeadings(html){
 
 /* ---------- PDF ---------- */
 async function parsePdf(file){
-  const ab = await file.arrayBuffer();
+  const ab = await readFileAsArrayBuffer(file);
   const pdf = await pdfjsLib.getDocument({ data: ab }).promise;
   let title = file.name.replace(/\.pdf$/i,'');
   try { const m = await pdf.getMetadata(); if(m.info && m.info.Title) title = m.info.Title; } catch {}
@@ -313,7 +337,7 @@ async function parsePdf(file){
 
 /* ---------- EPUB ---------- */
 async function parseEpub(file){
-  const ab = await file.arrayBuffer();
+  const ab = await readFileAsArrayBuffer(file);
   const zip = await JSZip.loadAsync(ab);
   // container.xml → opf 경로
   const containerXml = await zip.file('META-INF/container.xml').async('string');
