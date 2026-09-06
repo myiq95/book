@@ -67,11 +67,12 @@ public class TTSPlugin: CAPPlugin, CAPBridgedPlugin, AVSpeechSynthesizerDelegate
     }
 
     @objc func speak(_ call: CAPPluginCall) {
-        guard let text = call.getString("text"), !text.isEmpty else {
-            call.reject("text가 필요합니다")
+        let text = call.getString("text", "")
+        if text.isEmpty {
+            call.resolve() // 읽을 내용이 없으면 조용히 통과(단순하게 처리)
             return
         }
-        if let r = call.getFloat("rate") { rate = r }
+        rate = call.getFloat("rate", rate)
         configureAudioSession()
         synthesizer.stopSpeaking(at: .immediate)
         sentences = splitIntoSentences(text)
@@ -103,7 +104,7 @@ public class TTSPlugin: CAPPlugin, CAPBridgedPlugin, AVSpeechSynthesizerDelegate
     }
 
     @objc func setRate(_ call: CAPPluginCall) {
-        if let r = call.getFloat("rate") { rate = r }
+        rate = call.getFloat("rate", rate)
         call.resolve()
     }
 
