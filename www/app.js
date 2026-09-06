@@ -935,7 +935,13 @@ function stopBackgroundKeepAlive(){
    정지만 지원한다(문장 단위 건너뛰기 등 부가 기능은 웹 버전에만 있음).
    ================================================================= */
 function isNativeApp(){
-  return !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+  // 네이티브 실행 여부뿐 아니라 TTSPlugin이 실제로 브릿지에 등록돼
+  // 있는지까지 확인한다. 플러그인 등록이 어떤 이유로든 실패해도
+  // (예: 네이티브 쪽 등록 코드 문제) 여기서 걸러지므로, 이후 코드가
+  // nativeTts().stop() 같은 호출에서 "undefined" 예외로 앱 전체를
+  // 멈춰버리는 일이 없다 — 대신 조용히 웹 TTS 경로로 대체된다.
+  return !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()
+    && window.Capacitor.Plugins && window.Capacitor.Plugins.TTSPlugin);
 }
 function nativeTts(){ return window.Capacitor.Plugins.TTSPlugin; }
 function setupNativeTtsBridge(){
@@ -962,7 +968,8 @@ function speakChapterNative(){
   const ch = State.current.book.chapters[State.current.chapter];
   el.ttsStatus.textContent = ch ? ch.title : '읽는 중…';
   const text = cleanForSpeech(el.flow.textContent || '');
-  nativeTts().speak({ text, rate: State.tts.rate || 1.0 });
+  try { nativeTts().speak({ text, rate: State.tts.rate || 1.0 }); }
+  catch(e){ console.error(e); stopTTS(); }
 }
 
 function buildTtsQueue(){
@@ -1054,21 +1061,26 @@ function highlightTtsSentence(){
 function pauseTTS(){
   if(!State.tts.speaking || State.tts.paused) return;
   State.tts.paused = true; setTtsPlayIcon('play'); el.ttsStatus.textContent='일시정지';
-  if(isNativeApp()){ nativeTts().pause(); return; }
+  if(isNativeApp()){ try{ nativeTts().pause(); }catch(e){ console.error(e); } return; }
   if(State.tts.synth) State.tts.synth.pause();
   stopBackgroundKeepAlive();
 }
 function resumeTTS(){
   if(!State.tts.speaking || !State.tts.paused) return;
   State.tts.paused = false; setTtsPlayIcon('pause'); el.ttsStatus.textContent='읽는 중…';
-  if(isNativeApp()){ nativeTts().resume(); return; }
+  if(isNativeApp()){ try{ nativeTts().resume(); }catch(e){ console.error(e); } return; }
   if(State.tts.synth) State.tts.synth.resume();
   startBackgroundKeepAlive();
 }
 function stopTTS(){
   State.tts.speaking = false; State.tts.paused = false;
-  if(isNativeApp()){ nativeTts().stop(); }
-  else { if(State.tts.synth) State.tts.synth.cancel(); stopBackgroundKeepAlive(); }
+  // TTS 관련 네이티브 호출은 절대 이 함수를 실패시켜서는 안 된다 —
+  // stopTTS()는 openBook() 등 핵심 플로우 초입에서 매번 호출되므로,
+  // 여기서 예외가 나면 책 열기 자체가 통째로 멈춰버린다.
+  try {
+    if(isNativeApp()){ nativeTts().stop(); }
+    else { if(State.tts.synth) State.tts.synth.cancel(); stopBackgroundKeepAlive(); }
+  } catch(e){ console.error(e); }
   if(lastTtsNode){ lastTtsNode.classList.remove('tts-active'); lastTtsNode = null; }
   el.ttsBar.classList.remove('show'); setTimeout(()=>el.ttsBar.hidden=true, 200); setTtsPlayIcon('play');
 }
